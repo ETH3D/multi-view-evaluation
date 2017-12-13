@@ -2,6 +2,10 @@
 
 This tool is used for evaluating multi-view reconstruction methods in the [ETH3D benchmark](https://www.eth3d.net/).
 
+If you use this code for research, please cite our paper:
+
+T. Schöps, J. L. Schönberger, S. Galliani, T. Sattler, K. Schindler, M. Pollefeys, A. Geiger, "A Multi-View Stereo Benchmark with High-Resolution Images and Multi-Camera Videos", Conference on Computer Vision and Pattern Recognition (CVPR), 2017. \[[Bibtex](https://www.eth3d.net/data/schoeps2017cvpr.bib)\]\[[PDF](https://www.eth3d.net/data/schoeps2017cvpr.pdf)\]\[[Supplementary](https://www.eth3d.net/data/schoeps2017cvpr-supp.pdf)\]
+
 Example usage:
 
 ```

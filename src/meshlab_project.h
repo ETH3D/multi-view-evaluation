@@ -48,7 +48,7 @@ struct MeshLabProjectMeshInfo {
   std::string filename;
 };
 
-typedef std::vector<MeshLabProjectMeshInfo> MeshLabMeshInfoVector;
+typedef std::vector<MeshLabProjectMeshInfo,Eigen::aligned_allocator<MeshLabProjectMeshInfo>> MeshLabMeshInfoVector;
 
 // Loads MeshLabProjectMeshInfo from a MeshLab project file into the meshes
 // vector. Only reads the first MeshGroup. Returns true if successful.

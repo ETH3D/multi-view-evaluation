@@ -28,13 +28,13 @@
 
 #pragma once
 
+#include <Eigen/Core>
+
 #include <unordered_map>
+#include <vector>
 
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-
-typedef pcl::PointCloud<pcl::PointXYZ> PointCloud;
-typedef pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudPtr;
+using PointCloud = std::vector<Eigen::Vector3f>;
+using PointCloudPtr = const std::vector<Eigen::Vector3f>*;
 
 // Make std::unordered_map work with generic tuples.
 // Source: http://stackoverflow.com/questions/7110301
@@ -80,21 +80,21 @@ namespace std {
 }
 
 inline std::tuple<int, int, int> CalcCellCoordinates(
-    const pcl::PointXYZ& point, float voxel_size_inv,
+    const Eigen::Vector3f& point, float voxel_size_inv,
     float shift_x, float shift_y, float shift_z) {
-  float voxel_x = point.x * voxel_size_inv + shift_x;
+  float voxel_x = point.x() * voxel_size_inv + shift_x;
   int x = static_cast<int>(voxel_x);
   if (voxel_x - x != 0 && voxel_x < 0) {
     -- x;
   }
   
-  float voxel_y = point.y * voxel_size_inv + shift_y;
+  float voxel_y = point.y() * voxel_size_inv + shift_y;
   int y = static_cast<int>(voxel_y);
   if (voxel_y - y != 0 && voxel_y < 0) {
     -- y;
   }
   
-  float voxel_z = point.z * voxel_size_inv + shift_z;
+  float voxel_z = point.z() * voxel_size_inv + shift_z;
   int z = static_cast<int>(voxel_z);
   if (voxel_z - z != 0 && voxel_z < 0) {
     -- z;

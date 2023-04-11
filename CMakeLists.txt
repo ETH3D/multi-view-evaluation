@@ -58,4 +58,5 @@ target_link_libraries(ETH3DMultiViewEvaluation
     PRIVATE
         Eigen3::Eigen
         Boost::boost
+        TinyPly::TinyPly
 )

@@ -29,7 +29,10 @@
 #include "accuracy.h"
 
 #include <Eigen/StdVector>
-#include <pcl/io/ply_io.h>
+#include <tinyply.h>
+
+#include <memory>
+#include <fstream>
 
 // Number of cells used for the spatial access structure in inclination and
 // azimuth directions.
@@ -419,10 +422,10 @@ void ComputeAccuracy(
         &spherical_clouds[scan_index];
     spherical_cloud->resize(cartesian_cloud.size());
     for (size_t p = 0; p < cartesian_cloud.size(); ++p) {
-      const pcl::PointXYZ& cartesian_point = cartesian_cloud.at(p);
+      const Eigen::Vector3f& cartesian_point = cartesian_cloud.at(p);
       SphericalPointAndDirection* spherical_point = &spherical_cloud->at(p);
       *spherical_point =
-          SphericalPointAndDirection(cartesian_point.getVector3fMap());
+          SphericalPointAndDirection(cartesian_point);
 
       point_grids[scan_index]
           ->cell_mutable(spherical_point->azimuth, spherical_point->inclination)
@@ -448,7 +451,7 @@ void ComputeAccuracy(
   // Loop over the reconstruction points.
   for (size_t point_index = 0, size = reconstruction.size(); point_index < size;
        ++point_index) {
-    const pcl::PointXYZ& point = reconstruction.at(point_index);
+    const Eigen::Vector3f& point = reconstruction.at(point_index);
 
     // Find the voxels for this reconstruction point.
     std::vector<AccuracyCell>* cell_vectors[kGridCount];
@@ -476,7 +479,7 @@ void ComputeAccuracy(
     for (size_t scan_index = 0; scan_index < scan_count; ++scan_index) {
       // Transform reconstruction point into the cloud frame.
       Eigen::Vector3f cartesian_reconstruction_point =
-          scans_R_global[scan_index] * point.getVector3fMap() +
+          scans_R_global[scan_index] * point +
           scans_T_global[scan_index];
 
       // Convert it to spherical coordinates.
@@ -587,14 +590,8 @@ void WriteAccuracyVisualization(
     const std::vector<float>& sorted_tolerances,
     // Indexed by: [tolerance_index][point_index].
     const std::vector<std::vector<AccuracyResult>>& point_is_accurate) {
-  pcl::PointCloud<pcl::PointXYZRGB> accuracy_visualization;
-  accuracy_visualization.resize(reconstruction.size());
-
-  // Set visualization point positions (once for all tolerances).
-  for (size_t i = 0; i < reconstruction.size(); ++i) {
-    accuracy_visualization.at(i).getVector3fMap() =
-        reconstruction.at(i).getVector3fMap();
-  }
+    std::vector<Eigen::Vector3<uint8_t>> accuracy_visualization;
+      accuracy_visualization.resize(reconstruction.size());
 
   // Loop over all tolerances, set visualization point colors accordingly and
   // save the point clouds.
@@ -605,31 +602,46 @@ void WriteAccuracyVisualization(
 
     for (size_t point_index = 0; point_index < accuracy_visualization.size();
          ++point_index) {
-      pcl::PointXYZRGB* point = &accuracy_visualization.at(point_index);
+      auto& point = accuracy_visualization.at(point_index);
       if (point_is_accurate_for_tolerance[point_index] ==
           AccuracyResult::kAccurate) {
         // Green: accurate points.
-        point->r = 0;
-        point->g = 255;
-        point->b = 0;
+        point.x() = 0;
+        point.y() = 255;
+        point.z() = 0;
       } else if (point_is_accurate_for_tolerance[point_index] ==
                  AccuracyResult::kInaccurate) {
         // Red: inaccurate points.
-        point->r = 255;
-        point->g = 0;
-        point->b = 0;
+        point.x() = 255;
+        point.y() = 0;
+        point.z() = 0;
       } else if (point_is_accurate_for_tolerance[point_index] ==
                  AccuracyResult::kUnobserved) {
         // Blue: unobserved points.
-        point->r = 0;
-        point->g = 0;
-        point->b = 255;
+        point.x() = 0;
+        point.y() = 0;
+        point.z() = 255;
       }
     }
 
     std::ostringstream file_path;
     file_path << base_path << ".tolerance_"
               << sorted_tolerances[tolerance_index] << ".ply";
-    pcl::io::savePLYFileBinary(file_path.str(), accuracy_visualization);
+
+    tinyply::PlyFile ply;
+    ply.add_properties_to_element("vertex", {"x", "y", "z"},
+            tinyply::Type::FLOAT32, reconstruction.size(),
+            reinterpret_cast<const uint8_t*>(reconstruction.data()), tinyply::Type::INVALID, 0);
+
+    ply.add_properties_to_element("vertex", {"diffuse_red", "diffuse_green", "diffuse_blue"},
+            tinyply::Type::UINT8, reconstruction.size(),
+            reinterpret_cast<const uint8_t*>(accuracy_visualization.data()), tinyply::Type::INVALID, 0);
+
+    std::ofstream out;
+    out.exceptions(std::ios_base::badbit | std::ios_base::failbit);
+
+    out.open(file_path.str(), std::ios_base::binary);
+
+    ply.write(out, true);
   }
 }

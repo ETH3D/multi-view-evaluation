@@ -368,7 +368,7 @@ inline void ClassifyPoint(const Eigen::Vector3f& cartesian_reconstruction_point,
 
 void ComputeAccuracy(
     const MeshLabMeshInfoVector& scan_infos,
-    const std::vector<PointCloudPtr>& scans, const PointCloud& reconstruction,
+    const std::vector<PointCloud>& scans, const PointCloud& reconstruction,
     float voxel_size_inv,
     // Sorted by increasing tolerance.
     const std::vector<float>& sorted_tolerances, float beam_start_radius_meters,
@@ -417,7 +417,7 @@ void ComputeAccuracy(
     point_grids[scan_index].reset(
         new SphericalPointGrid(kCellCountAzimuth, kCellCountInclination));
 
-    const PointCloud& cartesian_cloud = *scans[scan_index];
+    const PointCloud& cartesian_cloud = scans[scan_index];
     SphericalPointAndDirectionCloud* spherical_cloud =
         &spherical_clouds[scan_index];
     spherical_cloud->resize(cartesian_cloud.size());

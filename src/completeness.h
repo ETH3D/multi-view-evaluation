@@ -38,7 +38,7 @@
 // scans.
 void ComputeCompleteness(
     const MeshLabMeshInfoVector& scan_infos,
-    const std::vector<PointCloudPtr>& scans,
+    const std::vector<PointCloud>& scans,
     const PointCloud& reconstruction,
     float voxel_size_inv,
     // Sorted by increasing tolerance.
@@ -51,7 +51,7 @@ void ComputeCompleteness(
 void WriteCompletenessVisualization(
     const std::string& base_path,
     const MeshLabMeshInfoVector& scan_infos,
-    const std::vector<PointCloudPtr>& scans,
+    const std::vector<PointCloud>& scans,
     // Sorted by increasing tolerance.
     const std::vector<float>& sorted_tolerances,
     // Indexed by: [tolerance_index][scan_point_index].

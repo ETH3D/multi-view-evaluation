@@ -57,7 +57,8 @@ add_executable(ETH3DMultiViewEvaluation
 target_link_libraries(ETH3DMultiViewEvaluation
     PRIVATE
         Eigen3::Eigen
-        Boost::boost
+        Boost::program_options
+        Boost::filesystem
         TinyPly::TinyPly
         Nanoflann::Nanoflann
 )

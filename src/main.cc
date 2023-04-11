@@ -28,13 +28,16 @@
 
 #include <Eigen/Core>
 #include <boost/filesystem.hpp>
-#include <pcl/console/parse.h>
-#include <pcl/io/ply_io.h>
+#include <boost/program_options.hpp>
+#include <tinyply.h>
 
 #include "accuracy.h"
 #include "completeness.h"
 #include "meshlab_project.h"
 #include "util.h"
+
+#include <sstream>
+#include <iostream>
 
 const float kDegToRadFactor = M_PI / 180.0;
 
@@ -48,32 +51,82 @@ enum class ReturnCodes {
   kReconstructionFileInputFailure = 2
 };
 
+PointCloud loadPly(std::string path)
+{
+  std::ifstream in;
+  in.exceptions(std::ios_base::failbit | std::ios_base::badbit);
+  in.open(path, std::ios_base::binary);
+
+  tinyply::PlyFile ply;
+  ply.parse_header(in);
+
+  std::shared_ptr<tinyply::PlyData> data;
+
+  PointCloud pcl;
+
+  data = ply.request_properties_from_element("vertex", {"x", "y", "z"});
+  if(data->t != tinyply::Type::FLOAT32)
+  {
+      throw std::runtime_error("unexpected vertex position type");
+  }
+  pcl.resize(data->count);
+  std::copy_n(data->buffer.get_const(), 3 * sizeof(float) * data->count,
+              reinterpret_cast<uint8_t*>(pcl.data()));
+  return pcl;
+}
+
 int main(int argc, char** argv) {
-  pcl::console::setVerbosityLevel(pcl::console::L_ALWAYS);
+  constexpr const char* descString = R"(Usage:
+    ETH3DMultiViewEvaluation [options]
+Options)";
+  namespace po = boost::program_options;
+  po::options_description desc(descString);
 
   // Parse arguments.
+  desc.add_options()("help,h", "print this help message");
   std::string reconstruction_ply_path;
-  pcl::console::parse_argument(argc, argv, "--reconstruction_ply_path",
-                               reconstruction_ply_path);
+  desc.add_options()("--reconstruction_ply_path", po::value<std::string>(&reconstruction_ply_path));
   std::string ground_truth_mlp_path;
-  pcl::console::parse_argument(argc, argv, "--ground_truth_mlp_path",
-                               ground_truth_mlp_path);
+  desc.add_options()("--ground_truth_mlp_path", po::value<std::string>(&ground_truth_mlp_path));
+  std::string tolStr;
+  desc.add_options()("--tolerances", po::value<std::string>(&tolStr), "comma-separated array");
+  std::istringstream tolss(tolStr);
   std::vector<float> tolerances;
-  pcl::console::parse_x_arguments(argc, argv, "--tolerances", tolerances);
+  std::string t;
+  while(std::getline(tolss, t, ','))
+  {
+      tolerances.push_back(std::stof(t));
+  }
   float voxel_size = 0.01f;
-  pcl::console::parse_argument(argc, argv, "--voxel_size", voxel_size);
+  desc.add_options()("--voxel_size", po::value<float>(&voxel_size));
   float beam_start_radius_meters = 0.5 * 0.00225;
-  pcl::console::parse_argument(argc, argv, "--beam_start_radius_meters",
-                               beam_start_radius_meters);
+  desc.add_options()("--beam_start_radius_meters", po::value<float>(&beam_start_radius_meters));
   float beam_divergence_halfangle_deg = 0.011;
-  pcl::console::parse_argument(argc, argv, "--beam_divergence_halfangle_deg",
-                               beam_divergence_halfangle_deg);
+  desc.add_options()("--beam_divergence_halfangle_deg", po::value<float>(&beam_divergence_halfangle_deg));
   std::string completeness_cloud_output_path;
-  pcl::console::parse_argument(argc, argv, "--completeness_cloud_output_path",
-                               completeness_cloud_output_path);
+  desc.add_options()("--completeness_cloud_output_path", po::value<std::string>(&completeness_cloud_output_path));
   std::string accuracy_cloud_output_path;
-  pcl::console::parse_argument(argc, argv, "--accuracy_cloud_output_path",
-                               accuracy_cloud_output_path);
+  desc.add_options()("--accuracy_cloud_output_path", po::value<std::string>(&accuracy_cloud_output_path));
+
+  po::variables_map vm;
+  try
+  {
+    po::store(po::command_line_parser(argc, argv).options(desc).run(), vm);
+
+    if (vm.count("help"))
+    {
+        std::cout << desc << std::endl;
+        return {};
+    }
+
+    po::notify(vm);
+  }
+  catch (const po::error& err)
+  {
+    std::cerr << "ERROR: " << err.what() << std::endl;
+    std::cerr << desc << std::endl;
+    return EXIT_FAILURE;
+  }
 
   // Validate arguments.
   std::stringstream errors;
@@ -101,7 +154,7 @@ int main(int argc, char** argv) {
                  "path/to/ground-truth.mlp"
               << std::endl << std::endl;
     std::cerr << errors.str() << std::endl;
-    return static_cast<int>(ReturnCodes::kSystemFailure);
+    return EXIT_FAILURE;
   }
 
   // Process arguments.
@@ -134,14 +187,11 @@ int main(int argc, char** argv) {
   // Load the reconstruction point cloud.
   std::cout << "Loading reconstruction: " << reconstruction_ply_path
             << std::endl;
-  PointCloudPtr reconstruction(new PointCloud());
-  if (pcl::io::loadPLYFile(reconstruction_ply_path, *reconstruction) < 0) {
-    std::cerr << "Cannot read reconstruction file." << std::endl;
-    return static_cast<int>(ReturnCodes::kReconstructionFileInputFailure);
-  }
+
+  PointCloud reconstruction = loadPly(reconstruction_ply_path);
 
   // Load the ground truth scan point clouds.
-  std::vector<PointCloudPtr> scans;
+  std::vector<PointCloud> scans;
   for (const MeshLabProjectMeshInfo& scan_info : scan_infos) {
     // Get absolute or compose relative path.
     std::string file_path =
@@ -152,13 +202,7 @@ int main(int argc, char** argv) {
                   .string();
 
     std::cout << "Loading scan: " << file_path << std::endl;
-    PointCloudPtr point_cloud(new PointCloud());
-    if (pcl::io::loadPLYFile(file_path, *point_cloud) < 0) {
-      std::cerr << "Cannot read scan file." << std::endl;
-      return static_cast<int>(ReturnCodes::kSystemFailure);
-    }
-
-    scans.push_back(point_cloud);
+    scans.push_back(loadPly(file_path));
   }
 
   // Determine completeness.
@@ -189,7 +233,7 @@ int main(int argc, char** argv) {
   // Indexed by: [tolerance_index][scan_point_index].
   std::vector<std::vector<AccuracyResult>> point_is_accurate;
   bool output_point_accuracy = !accuracy_cloud_output_path.empty();
-  ComputeAccuracy(scan_infos, scans, *reconstruction, voxel_size_inv,
+  ComputeAccuracy(scan_infos, scans, reconstruction, voxel_size_inv,
                   tolerances, beam_start_radius_meters,
                   tan_beam_divergence_halfangle_rad, &accuracy_results,
                   output_point_accuracy ? &point_is_accurate : nullptr);
@@ -198,7 +242,7 @@ int main(int argc, char** argv) {
   if (output_point_accuracy) {
     boost::filesystem::create_directories(
         boost::filesystem::path(accuracy_cloud_output_path).parent_path());
-    WriteAccuracyVisualization(accuracy_cloud_output_path, *reconstruction,
+    WriteAccuracyVisualization(accuracy_cloud_output_path, reconstruction,
                                tolerances, point_is_accurate);
   }
 

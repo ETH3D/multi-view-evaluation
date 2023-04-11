@@ -43,7 +43,7 @@ enum class AccuracyResult : uint8_t {
 // Computes the accuracy of the reconstruction with respect to the given scans.
 void ComputeAccuracy(
     const MeshLabMeshInfoVector& scan_infos,
-    const std::vector<PointCloudPtr>& scans,
+    const std::vector<PointCloud>& scans,
     const PointCloud& reconstruction,
     float voxel_size_inv,
     // Sorted by increasing tolerance.

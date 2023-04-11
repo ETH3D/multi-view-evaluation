@@ -34,7 +34,6 @@
 #include <vector>
 
 using PointCloud = std::vector<Eigen::Vector3f>;
-using PointCloudPtr = const std::vector<Eigen::Vector3f>*;
 
 // Make std::unordered_map work with generic tuples.
 // Source: http://stackoverflow.com/questions/7110301

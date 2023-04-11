@@ -51,7 +51,7 @@ struct CompletenessCell {
 };
 
 void ComputeCompleteness(const MeshLabMeshInfoVector& scan_infos,
-                         const std::vector<PointCloudPtr>& scans,
+                         const std::vector<PointCloud>& scans,
                          const PointCloud& reconstruction,
                          float voxel_size_inv,
                          // Sorted by increasing tolerance.
@@ -78,7 +78,7 @@ void ComputeCompleteness(const MeshLabMeshInfoVector& scan_infos,
     PointCloud temp_cloud;
     Eigen::Affine3f affine;
     affine.matrix() = scan_infos[scan_index].global_T_mesh;
-    std::transform(scans[scan_index]->begin(), scans[scan_index]->end(), std::back_inserter(scan),
+    std::transform(scans[scan_index].begin(), scans[scan_index].end(), std::back_inserter(scan),
             [&](auto p) -> Eigen::Vector3f { return affine * p;});
   }
 
@@ -216,7 +216,7 @@ void ComputeCompleteness(const MeshLabMeshInfoVector& scan_infos,
 
 void WriteCompletenessVisualization(
     const std::string& base_path, const MeshLabMeshInfoVector& scan_infos,
-    const std::vector<PointCloudPtr>& scans,
+    const std::vector<PointCloud>& scans,
     // Sorted by increasing tolerance.
     const std::vector<float>& sorted_tolerances,
     // Indexed by: [tolerance_index][scan_point_index].
@@ -228,7 +228,7 @@ void WriteCompletenessVisualization(
     PointCloud temp_cloud;
     Eigen::Affine3f affine;
     affine.matrix() = scan_infos[scan_index].global_T_mesh;
-    std::transform(scans[scan_index]->begin(), scans[scan_index]->end(), std::back_inserter(scan),
+    std::transform(scans[scan_index].begin(), scans[scan_index].end(), std::back_inserter(scan),
             [&](auto p) -> Eigen::Vector3f { return affine * p;});
   }
   std::vector<Eigen::Vector3<uint8_t>> completeness_visualization(scan.size());

@@ -1,0 +1,3 @@
+[submodule "conan-profiles"]
+	path = conan-profiles
+	url = git@github.com:Pix4D/conan-profiles.git

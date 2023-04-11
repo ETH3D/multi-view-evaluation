@@ -1,22 +1,23 @@
 project(ETH3DMultiViewEvaluation)
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.14)
 
-set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
+include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+conan_set_find_paths()
 
-# External dependency: boost filesystem
-find_package(Boost COMPONENTS filesystem system REQUIRED)
-include_directories(${Boost_INCLUDE_DIRS})
-link_directories(${Boost_LIBRARY_DIRS})
+set(BOOST_ROOT ${CONAN_BOOST_ROOT})
+set(Boost_NO_SYSTEM_PATHS        ON)
+set(Boost_USE_STATIC_LIBS        OFF)
+set(Boost_USE_MULTITHREADED      ON)
+set(Boost_USE_STATIC_RUNTIME     OFF)
+find_package(Boost COMPONENTS filesystem system program_options chrono thread date_time iostreams REQUIRED QUIET)
+if (WIN32)
+    target_link_libraries(Boost::system INTERFACE bcrypt)
+endif()
 
 # External dependency: Eigen3
 find_package(Eigen3 REQUIRED)
-include_directories(${EIGEN3_INCLUDE_DIRS})
-
-# External dependency: PCL
-find_package(PCL 1.7 REQUIRED)
-include_directories(${PCL_INCLUDE_DIRS})
-link_directories(${PCL_LIBRARY_DIRS})
-add_definitions(${PCL_DEFINITIONS})
+find_package(Nanoflann REQUIRED QUIET)
+find_package(TinyPly REQUIRED QUIET)
 
 # OpenMP
 find_package(OpenMP)
@@ -52,7 +53,9 @@ add_executable(ETH3DMultiViewEvaluation
     src/tinyxml2.h
     src/util.h
 )
+
 target_link_libraries(ETH3DMultiViewEvaluation
-    ${PCL_LIBRARIES}
-    ${Boost_LIBRARIES}
+    PRIVATE
+        Eigen3::Eigen
+        Boost::boost
 )

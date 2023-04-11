@@ -33,7 +33,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 if(NOT "${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-    add_definitions("-O2 -msse2 -msse3 -std=c++11")
+    add_definitions("-O2 -msse2 -msse3 -std=c++17")
 endif()
 
 include_directories(
@@ -59,4 +59,5 @@ target_link_libraries(ETH3DMultiViewEvaluation
         Eigen3::Eigen
         Boost::boost
         TinyPly::TinyPly
+        Nanoflann::Nanoflann
 )

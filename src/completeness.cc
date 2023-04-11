@@ -28,9 +28,11 @@
 
 #include "completeness.h"
 
-#include <pcl/common/transforms.h>
-#include <pcl/io/ply_io.h>
-#include <pcl/search/kdtree.h>
+#include <pix4d/nanoflannwrap/PointCloudANN.h>
+#include <Eigen/Geometry>
+#include <tinyply.h>
+
+#include <fstream>
 
 const int kGridCount = 2;
 const float kGridShifts[kGridCount][3] = {{0.f, 0.f, 0.f}, {0.5f, 0.5f, 0.5f}};
@@ -50,7 +52,7 @@ struct CompletenessCell {
 
 void ComputeCompleteness(const MeshLabMeshInfoVector& scan_infos,
                          const std::vector<PointCloudPtr>& scans,
-                         const PointCloudPtr& reconstruction,
+                         const PointCloud& reconstruction,
                          float voxel_size_inv,
                          // Sorted by increasing tolerance.
                          const std::vector<float>& sorted_tolerances,
@@ -71,12 +73,13 @@ void ComputeCompleteness(const MeshLabMeshInfoVector& scan_infos,
   }
 
   // Merge the scan point clouds into one point cloud in global coordinates.
-  PointCloudPtr scan(new PointCloud());
+  PointCloud scan;
   for (size_t scan_index = 0; scan_index < scan_infos.size(); ++scan_index) {
     PointCloud temp_cloud;
-    pcl::transformPointCloud(*scans[scan_index], temp_cloud,
-                             scan_infos[scan_index].global_T_mesh);
-    *scan += temp_cloud;
+    Eigen::Affine3f affine;
+    affine.matrix() = scan_infos[scan_index].global_T_mesh;
+    std::transform(scans[scan_index]->begin(), scans[scan_index]->end(), std::back_inserter(scan),
+            [&](auto p) -> Eigen::Vector3f { return affine * p;});
   }
 
   // Prepare point_is_complete, if requested.
@@ -84,24 +87,20 @@ void ComputeCompleteness(const MeshLabMeshInfoVector& scan_infos,
     point_is_complete->resize(tolerances_count);
     for (size_t tolerance_index = 0; tolerance_index < tolerances_count;
          ++tolerance_index) {
-      point_is_complete->at(tolerance_index).resize(scan->size(), false);
+      point_is_complete->at(tolerance_index).resize(scan.size(), false);
     }
   }
 
   // Special case for empty reconstructions since the KdTree construction
   // crashes for them.
-  if (reconstruction->size() == 0) {
+  if (reconstruction.size() == 0) {
     results->clear();
     results->resize(tolerances_count, 0.f);
     return;
   }
 
-  pcl::PointXYZ search_point;
-  pcl::search::KdTree<pcl::PointXYZ> reconstruction_kdtree;
-  // Get sorted results from radius search. True should be the default, but be
-  // on the safe side for the case of changing defaults:
-  reconstruction_kdtree.setSortedResults(true);
-  reconstruction_kdtree.setInputCloud(reconstruction);
+  Eigen::Vector3f search_point;
+  pix4d::nanoflannwrap::PointCloudANN<3, float> reconstruction_kdtree(reconstruction);
 
   // Differently shifted voxel grids.
   // Indexed by: [map_index][CalcCellCoordinates(...)].
@@ -109,17 +108,17 @@ void ComputeCompleteness(const MeshLabMeshInfoVector& scan_infos,
       cell_maps[kGridCount];
 
   const int kNN = 1;
-  std::vector<int> knn_indices(kNN);
+  std::vector<size_t> knn_indices(kNN);
   std::vector<float> knn_squared_dists(kNN);
 
   const long long int scan_point_size =
-      static_cast<long long int>(scan->size());
+      static_cast<long long int>(scan.size());
 
 // Loop over all scan points.
 #pragma omp parallel for private(search_point, knn_indices, knn_squared_dists)
   for (long long int scan_point_index = 0; scan_point_index < scan_point_size;
        ++scan_point_index) {
-    const pcl::PointXYZ& scan_point = scan->at(scan_point_index);
+    const auto& scan_point = scan.at(scan_point_index);
 
     // Find the voxels for this scan point and increase their point count.
     CompletenessCell* cells[kGridCount];
@@ -137,10 +136,9 @@ void ComputeCompleteness(const MeshLabMeshInfoVector& scan_infos,
 
     // Find the closest reconstruction point to this scan point, limited to the
     // maximum evaluation tolerance for efficiency.
-    search_point.getVector3fMap() = scan_point.getVector3fMap();
-    if (reconstruction_kdtree.radiusSearch(search_point, maximum_tolerance,
-                                           knn_indices, knn_squared_dists,
-                                           kNN) > 0) {
+    search_point = scan_point;
+    reconstruction_kdtree.knnSearch(search_point, kNN, knn_indices, knn_squared_dists);
+    if (knn_squared_dists.front() <= maximum_tolerance * maximum_tolerance) {
       int smallest_complete_tolerance_index = 0;
 #pragma omp critical
       {
@@ -223,24 +221,21 @@ void WriteCompletenessVisualization(
     const std::vector<float>& sorted_tolerances,
     // Indexed by: [tolerance_index][scan_point_index].
     const std::vector<std::vector<bool>>& point_is_complete) {
-  pcl::PointCloud<pcl::PointXYZRGB> completeness_visualization;
-  completeness_visualization.resize(point_is_complete[0].size());
 
   // Set visualization point positions (once for all tolerances).
-  size_t output_index = 0;
+  PointCloud scan;
   for (size_t scan_index = 0; scan_index < scan_infos.size(); ++scan_index) {
     PointCloud temp_cloud;
-    pcl::transformPointCloud(*scans[scan_index], temp_cloud,
-                             scan_infos[scan_index].global_T_mesh);
-    for (size_t i = 0; i < temp_cloud.size(); ++i) {
-      completeness_visualization.at(output_index).getVector3fMap() =
-          temp_cloud.at(i).getVector3fMap();
-      ++output_index;
-    }
+    Eigen::Affine3f affine;
+    affine.matrix() = scan_infos[scan_index].global_T_mesh;
+    std::transform(scans[scan_index]->begin(), scans[scan_index]->end(), std::back_inserter(scan),
+            [&](auto p) -> Eigen::Vector3f { return affine * p;});
   }
+  std::vector<Eigen::Vector3<uint8_t>> completeness_visualization(scan.size());
 
   // Loop over all tolerances, set visualization point colors accordingly and
   // save the point clouds.
+  // TODO this makes no sense to loop over all tolerances since only the effect of the last tolerance will determine the color of the points. WTH is this code trying to do?
   for (size_t tolerance_index = 0; tolerance_index < sorted_tolerances.size();
        ++tolerance_index) {
     const std::vector<bool>& point_is_complete_for_tolerance =
@@ -249,24 +244,39 @@ void WriteCompletenessVisualization(
     for (size_t scan_point_index = 0;
          scan_point_index < completeness_visualization.size();
          ++scan_point_index) {
-      pcl::PointXYZRGB* point =
-          &completeness_visualization.at(scan_point_index);
+      auto& point =
+          completeness_visualization.at(scan_point_index);
       if (point_is_complete_for_tolerance[scan_point_index]) {
         // Green: complete points.
-        point->r = 0;
-        point->g = 255;
-        point->b = 0;
+        point.x() = 0;
+        point.y() = 255;
+        point.z() = 0;
       } else {
         // Red: incomplete points.
-        point->r = 255;
-        point->g = 0;
-        point->b = 0;
+        point.x() = 255;
+        point.y() = 0;
+        point.z() = 0;
       }
     }
 
     std::ostringstream file_path;
     file_path << base_path << ".tolerance_"
               << sorted_tolerances[tolerance_index] << ".ply";
-    pcl::io::savePLYFileBinary(file_path.str(), completeness_visualization);
+
+    tinyply::PlyFile ply;
+    ply.add_properties_to_element("vertex", {"x", "y", "z"},
+            tinyply::Type::FLOAT32, scan.size(),
+            reinterpret_cast<const uint8_t*>(scan.data()), tinyply::Type::INVALID, 0);
+
+    ply.add_properties_to_element("vertex", {"diffuse_red", "diffuse_green", "diffuse_blue"},
+            tinyply::Type::UINT8, completeness_visualization.size(),
+            reinterpret_cast<const uint8_t*>(completeness_visualization.data()), tinyply::Type::INVALID, 0);
+
+    std::ofstream out;
+    out.exceptions(std::ios_base::badbit | std::ios_base::failbit);
+
+    out.open(file_path.str(), std::ios_base::binary);
+
+    ply.write(out, true);
   }
 }
